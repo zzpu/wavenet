@@ -1,3 +1,4 @@
+#coding:utf-8
 """Training script for the WaveNet network on the VCTK corpus.
 
 This script trains a network with the WaveNet using data from the VCTK corpus,
@@ -18,9 +19,10 @@ import tensorflow as tf
 from tensorflow.python.client import timeline
 
 from wavenet import WaveNetModel, AudioReader, optimizer_factory
-
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="1,2"
 BATCH_SIZE = 1
-DATA_DIRECTORY = './VCTK-Corpus'
+DATA_DIRECTORY = '/opt/code/python/datasets/corpus/'
 LOGDIR_ROOT = './logdir'
 CHECKPOINT_EVERY = 50
 NUM_STEPS = int(1e5)
@@ -29,9 +31,9 @@ WAVENET_PARAMS = './wavenet_params.json'
 STARTED_DATESTRING = "{0:%Y-%m-%dT%H-%M-%S}".format(datetime.now())
 SAMPLE_SIZE = 100000
 L2_REGULARIZATION_STRENGTH = 0
-SILENCE_THRESHOLD = 0.3
+SILENCE_THRESHOLD = 0.05
 EPSILON = 0.001
-MOMENTUM = 0.9
+MOMENTUM = 0.9 #学习动量
 MAX_TO_KEEP = 5
 METADATA = False
 
@@ -189,6 +191,7 @@ def main():
     args = get_arguments()
 
     try:
+        #读取wavenet模型参数
         directories = validate_directories(args)
     except ValueError as e:
         print("Some arguments are wrong:")
@@ -209,11 +212,14 @@ def main():
     coord = tf.train.Coordinator()
 
     # Load raw waveform from VCTK corpus.
+    # 从VCTK 数据集生成input.
     with tf.name_scope('create_inputs'):
         # Allow silence trimming to be skipped by specifying a threshold near
         # zero.
         silence_threshold = args.silence_threshold if args.silence_threshold > \
                                                       EPSILON else None
+
+        # 此处采用了audio_reader.py中的AudioReader类，后面将对该类进行详解
         gc_enabled = args.gc_channels is not None
         reader = AudioReader(
             args.data_dir,
@@ -232,7 +238,7 @@ def main():
         else:
             gc_id_batch = None
 
-    # Create network.
+    # 建立网络，使用model.py的WaveNetModel类.后面将对该类进行详解。
     net = WaveNetModel(
         batch_size=args.batch_size,
         dilations=wavenet_params["dilations"],
@@ -247,12 +253,14 @@ def main():
         histograms=args.histograms,
         global_condition_channels=args.gc_channels,
         global_condition_cardinality=reader.gc_category_cardinality)
-
+    # 是否使用L2正则
     if args.l2_regularization_strength == 0:
         args.l2_regularization_strength = None
+    # 计算loss
     loss = net.loss(input_batch=audio_batch,
                     global_condition_batch=gc_id_batch,
                     l2_regularization_strength=args.l2_regularization_strength)
+    # 选择使用sgd还是adam优化器
     optimizer = optimizer_factory[args.optimizer](
                     learning_rate=args.learning_rate,
                     momentum=args.momentum)
@@ -260,17 +268,20 @@ def main():
     optim = optimizer.minimize(loss, var_list=trainable)
 
     # Set up logging for TensorBoard.
+    # 将日志数据写入 TensorBoard.
     writer = tf.summary.FileWriter(logdir)
     writer.add_graph(tf.get_default_graph())
     run_metadata = tf.RunMetadata()
     summaries = tf.summary.merge_all()
 
     # Set up session
+    # 开始 session
     sess = tf.Session(config=tf.ConfigProto(log_device_placement=False))
     init = tf.global_variables_initializer()
     sess.run(init)
 
     # Saver for storing checkpoints of the model.
+    # 保存模型
     saver = tf.train.Saver(var_list=tf.trainable_variables(), max_to_keep=args.max_checkpoints)
 
     try:
@@ -285,7 +296,7 @@ def main():
               "We will terminate training to avoid accidentally overwriting "
               "the previous model.")
         raise
-
+    # 此处采用了tensorflow的线程和队列的方法
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
     reader.start_threads(sess)
 
@@ -326,6 +337,7 @@ def main():
         # Introduce a line break after ^C is displayed so save message
         # is on its own line.
         print()
+    # 此处略过部分代码
     finally:
         if step > last_saved_step:
             save(saver, sess, logdir, step)

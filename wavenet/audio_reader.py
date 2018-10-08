@@ -97,18 +97,19 @@ class AudioReader(object):
                  sample_size=None,
                  silence_threshold=None,
                  queue_size=32):
-        self.audio_dir = audio_dir
-        self.sample_rate = sample_rate
+        self.audio_dir = audio_dir#训练文件路径
+        self.sample_rate = sample_rate#采样率
         self.coord = coord
-        self.sample_size = sample_size
+        self.sample_size = sample_size#样本大小
         self.receptive_field = receptive_field
-        self.silence_threshold = silence_threshold
+        self.silence_threshold = silence_threshold#阈值，低于多少就为零
         self.gc_enabled = gc_enabled
         self.threads = []
         self.sample_placeholder = tf.placeholder(dtype=tf.float32, shape=None)
         self.queue = tf.PaddingFIFOQueue(queue_size,
                                          ['float32'],
                                          shapes=[(None, 1)])
+        # 队列初始化
         self.enqueue = self.queue.enqueue([self.sample_placeholder])
 
         if self.gc_enabled:
